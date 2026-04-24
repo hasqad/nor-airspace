@@ -642,6 +642,34 @@ function icaoToCountry(hex) {
   return '—';
 }
 
+const AIRLINE_CODES = {
+  'SAS':'Scandinavian Airlines','NAX':'Norwegian Air Shuttle','WIF':'Widerøe',
+  'DLH':'Lufthansa','BER':'Air Berlin','EWG':'Eurowings','CLH':'Condor',
+  'BAW':'British Airways','EZY':'easyJet','RYR':'Ryanair','TOM':'TUI Airways','LOG':'Loganair',
+  'AFR':'Air France','TVF':'Transavia France',
+  'KLM':'KLM','TRA':'Transavia',
+  'FIN':'Finnair','FCM':'Finnair Cargo',
+  'IBE':'Iberia','VLG':'Vueling','AEA':'Air Europa',
+  'TAP':'TAP Air Portugal',
+  'AZA':'ITA Airways','BPA':'Blue Panorama',
+  'THY':'Turkish Airlines','PGT':'Pegasus',
+  'UAE':'Emirates','ETD':'Etihad','QTR':'Qatar Airways','SVA':'Saudia',
+  'AFL':'Aeroflot','SDM':'Rossiya','UTA':'UTair',
+  'LOT':'LOT Polish','WZZ':'Wizz Air','BEL':'Brussels Airlines',
+  'CSA':'Czech Airlines','CTN':'Croatia Airlines','AUA':'Austrian Airlines',
+  'SWR':'Swiss','BAV':'Baboo',
+  'AAL':'American Airlines','UAL':'United','DAL':'Delta','SKW':'SkyWest',
+  'ACA':'Air Canada','WJA':'WestJet',
+  'GTI':'Atlas Air','CLX':'Cargolux','FDX':'FedEx','UPS':'UPS Airlines','DHK':'DHL',
+  'MSR':'EgyptAir','RAM':'Royal Air Maroc','TUN':'Tunisair',
+  'KAL':'Korean Air','ANA':'ANA','JAL':'Japan Airlines','CPA':'Cathay Pacific','SIA':'Singapore Airlines',
+};
+
+function callsignToAirline(cs) {
+  if (!cs || cs.length < 3) return null;
+  return AIRLINE_CODES[cs.substring(0, 3).toUpperCase()] || null;
+}
+
 function categoryToSize(cat) {
   if (!cat || cat.length < 2) return 16;
   const n = parseInt(cat[1]);
@@ -676,7 +704,7 @@ function parseAdsbLol(data) {
         heading:      ac.track,
         vRate:        ac.baro_rate ? ac.baro_rate / 196.85 : null,
         squawk:       ac.squawk    || '—',
-        airline:      ac.ownOp     || '—',
+        airline:      ac.ownOp || callsignToAirline((ac.flight || '').trim()) || '—',
         aircraftType: ac.desc      || ac.t || '—',
         registration: ac.r         || '—',
         category:     ac.category  || '',
