@@ -581,20 +581,23 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ── PLANE SVG ─────────────────────────────────────────────────────
-function makePlaneIcon(heading, onGround, selected) {
+function makePlaneIcon(heading, onGround, selected, category = '') {
   const cls = selected ? 'selected' : (onGround ? 'ground' : '');
   const rot = (heading || 0);
+  const base = categoryToSize(category);
+  const sz = selected ? base + 4 : base;
+  const csz = sz + 10;
   const svg = `<svg class="plane-svg ${cls}" viewBox="0 0 24 24"
-    style="transform:rotate(${rot}deg)"
+    style="width:${sz}px;height:${sz}px;transform:rotate(${rot}deg)"
     xmlns="http://www.w3.org/2000/svg">
     <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
   </svg>`;
   return L.divIcon({
-    html: `<div class="plane-marker">${svg}</div>`,
+    html: `<div class="plane-marker" style="width:${csz}px;height:${csz}px">${svg}</div>`,
     className: '',
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    tooltipAnchor: [14, 0],
+    iconSize: [csz, csz],
+    iconAnchor: [csz/2, csz/2],
+    tooltipAnchor: [csz/2, 0],
   });
 }
 
@@ -639,6 +642,20 @@ function icaoToCountry(hex) {
   return '—';
 }
 
+function categoryToSize(cat) {
+  if (!cat || cat.length < 2) return 16;
+  const n = parseInt(cat[1]);
+  if (cat[0] === 'A') {
+    if (n >= 5) return 26; // Tung (B747, A380, B777)
+    if (n === 4) return 22; // Stor med høy vortex (B757)
+    if (n === 3) return 18; // Stor (B737, A320)
+    if (n === 2) return 13; // Liten
+    return 10;              // Lett / GA
+  }
+  if (cat[0] === 'B') return 12; // Rotorcraft/helikopter
+  return 16;
+}
+
 function parseAdsbLol(data) {
   return (data.ac || [])
     .filter(ac => ac.lat != null && ac.lon != null)
@@ -648,17 +665,21 @@ function parseAdsbLol(data) {
       const onGround = ac.alt_baro === 'ground';
       const altFt = typeof ac.alt_baro === 'number' ? ac.alt_baro : null;
       return {
-        icao24:   ac.hex,
-        callsign: (ac.flight || '').trim() || ac.hex.toUpperCase(),
-        country:  icaoToCountry(ac.hex),
-        lon:      ac.lon,
-        lat:      ac.lat,
-        altitude: altFt ? altFt / 3.281 : null,
-        onGround: onGround,
-        velocity: ac.gs   ? ac.gs / 1.944       : null,
-        heading:  ac.track,
-        vRate:    ac.baro_rate ? ac.baro_rate / 196.85 : null,
-        squawk:   ac.squawk || '—',
+        icao24:       ac.hex,
+        callsign:     (ac.flight || '').trim() || ac.hex.toUpperCase(),
+        country:      icaoToCountry(ac.hex),
+        lon:          ac.lon,
+        lat:          ac.lat,
+        altitude:     altFt ? altFt / 3.281 : null,
+        onGround:     onGround,
+        velocity:     ac.gs        ? ac.gs / 1.944        : null,
+        heading:      ac.track,
+        vRate:        ac.baro_rate ? ac.baro_rate / 196.85 : null,
+        squawk:       ac.squawk    || '—',
+        airline:      ac.ownOp     || '—',
+        aircraftType: ac.desc      || ac.t || '—',
+        registration: ac.r         || '—',
+        category:     ac.category  || '',
       };
     });
 }
@@ -667,17 +688,21 @@ function parseOpenSky(data) {
   return (data.states || [])
     .filter(s => s[5] != null && s[6] != null)
     .map(s => ({
-      icao24:   s[0],
-      callsign: (s[1] || '').trim() || s[0].toUpperCase(),
-      country:  s[2] || '—',
-      lon:      s[5],
-      lat:      s[6],
-      altitude: s[7],
-      onGround: s[8],
-      velocity: s[9],
-      heading:  s[10],
-      vRate:    s[11],
-      squawk:   s[14] || '—',
+      icao24:       s[0],
+      callsign:     (s[1] || '').trim() || s[0].toUpperCase(),
+      country:      s[2] || '—',
+      lon:          s[5],
+      lat:          s[6],
+      altitude:     s[7],
+      onGround:     s[8],
+      velocity:     s[9],
+      heading:      s[10],
+      vRate:        s[11],
+      squawk:       s[14] || '—',
+      airline:      '—',
+      aircraftType: '—',
+      registration: '—',
+      category:     '',
     }));
 }
 
@@ -785,8 +810,10 @@ function updateMap() {
   // Add/update
   flights.forEach(f => {
     const selected = f.icao24 === selectedIcao;
-    const icon = makePlaneIcon(f.heading, f.onGround, selected);
-    const tooltip = `${f.callsign} · ${f.country}<br>` +
+    const icon = makePlaneIcon(f.heading, f.onGround, selected, f.category);
+    const tooltip = `<b>${f.callsign}</b> · ${f.country}<br>` +
+      (f.airline !== '—' ? `${f.airline}<br>` : '') +
+      (f.aircraftType !== '—' ? `${f.aircraftType}<br>` : '') +
       `${m2ft(f.altitude)} ft · ${mps2kts(f.velocity)} kts`;
 
     if (markers[f.icao24]) {
@@ -816,7 +843,7 @@ function selectFlight(icao) {
   });
   flights.forEach(fl => {
     if (markers[fl.icao24]) {
-      markers[fl.icao24].setIcon(makePlaneIcon(fl.heading, fl.onGround, fl.icao24 === selectedIcao));
+      markers[fl.icao24].setIcon(makePlaneIcon(fl.heading, fl.onGround, fl.icao24 === selectedIcao, fl.category));
     }
   });
 
@@ -828,8 +855,18 @@ function selectFlight(icao) {
   panel.className = 'plane-detail';
   panel.innerHTML = `
     <div class="plane-callsign">${f.callsign}</div>
-    <div class="plane-country">📡 ${f.country} · ${f.icao24.toUpperCase()}</div>
+    <div class="plane-country">📡 ${f.country} · ${f.icao24.toUpperCase()}${f.registration !== '—' ? ' · ' + f.registration : ''}</div>
     <div class="detail-grid">
+      ${f.airline !== '—' ? `
+      <div class="detail-cell" style="grid-column:span 2">
+        <div class="detail-cell-label">FLYSELSKAP</div>
+        <div class="detail-cell-value">${f.airline}</div>
+      </div>` : ''}
+      ${f.aircraftType !== '—' ? `
+      <div class="detail-cell" style="grid-column:span 2">
+        <div class="detail-cell-label">FLYTYPE</div>
+        <div class="detail-cell-value">${f.aircraftType}</div>
+      </div>` : ''}
       <div class="detail-cell">
         <div class="detail-cell-label">HØYDE</div>
         <div class="detail-cell-value">${m2ft(f.altitude)} ft</div>
@@ -894,7 +931,7 @@ function updateSidebar() {
       <div class="fi-icon">${f.onGround ? '🟡' : '✈'}</div>
       <div class="fi-info">
         <div class="fi-callsign">${f.callsign}</div>
-        <div class="fi-sub">${f.country}</div>
+        <div class="fi-sub">${f.airline !== '—' ? f.airline : f.country}${f.aircraftType !== '—' ? ' · ' + f.aircraftType : ''}</div>
       </div>
       <div class="fi-alt">${f.onGround ? 'GND' : m2ft(f.altitude) + ' ft'}</div>
     </div>
