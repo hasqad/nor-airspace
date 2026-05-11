@@ -22,9 +22,3 @@ jobs:
           aws s3 cp index.html s3://${{ secrets.S3_BUCKET }}/index.html \
             --cache-control "max-age=300, must-revalidate" \
             --content-type "text/html; charset=utf-8"
-
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CF_DISTRIBUTION_ID }} \
-            --paths "/*"
