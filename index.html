@@ -611,12 +611,8 @@ const deg2dir  = d => {
 };
 
 // ── FETCH DATA ────────────────────────────────────────────────────
-// Datakilder i prioritert rekkefølge
-const OPENSKY_URL = 'https://opensky-network.org/api/states/all?lamin=57&lomin=4&lamax=72&lomax=32';
-const ADSB_SOURCES = [
-  { url: 'https://api.airplanes.live/v2/point/64.5/15/700', parser: 'adsblike' },
-  { url: 'https://api.adsb.lol/v2/lat/64.5/lng/15/dist/950', parser: 'adsblike' },
-];
+const LAMBDA_PROXY  = 'REPLACE_WITH_LAMBDA_URL';
+const OPENSKY_URL   = 'https://opensky-network.org/api/states/all?lamin=57&lomin=4&lamax=72&lomax=32';
 const OPENSKY_PROXIES = [
   u => 'https://corsproxy.io/?' + encodeURIComponent(u),
   u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
@@ -759,6 +755,11 @@ async function fetchFlights() {
 
   // Kjør alle kilder parallelt — tar den raskeste som svarer
   const sources = [
+    // Lambda-proxy (server-side fetch — mest pålitelig)
+    ...(LAMBDA_PROXY !== 'REPLACE_WITH_LAMBDA_URL'
+      ? [{ url: LAMBDA_PROXY, parse: parseAdsbLol }]
+      : []),
+    // Direkte browser-fetch (fallback)
     { url: 'https://api.airplanes.live/v2/point/64.5/15/700', parse: parseAdsbLol },
     { url: 'https://api.adsb.lol/v2/lat/64.5/lng/15/dist/950', parse: parseAdsbLol },
     { url: OPENSKY_URL, parse: parseOpenSky },
