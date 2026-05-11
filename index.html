@@ -476,7 +476,7 @@
 <header>
   <div class="logo">
     <span class="logo-main">✈ NOR AIRSPACE</span>
-    <span class="logo-sub">SANNTIDS FLYTRAFIKK</span>
+    <span class="logo-sub">EUROPA — SANNTIDS FLYTRAFIKK</span>
   </div>
   <div class="header-stats">
     <div class="stat-item">
@@ -529,7 +529,7 @@
 </div>
 
 <div class="bottom-bar">
-  <span>KILDE: OPENSKY NETWORK API — NORGE (57°N–72°N, 4°E–32°E)</span>
+  <span>KILDE: OPENSKY NETWORK API — EUROPA (35°N–72°N, 25°W–45°E)</span>
   <div class="refresh-bar">
     <span id="refresh-label">OPPDATERES OM 30s</span>
     <div class="progress-track">
@@ -543,8 +543,8 @@
 <script>
 // ── INIT MAP ──────────────────────────────────────────────────────
 const map = L.map('map', {
-  center: [65, 15],
-  zoom: 5,
+  center: [54, 10],
+  zoom: 4,
   zoomControl: true,
   attributionControl: true,
 });
@@ -554,13 +554,6 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18,
 }).addTo(map);
 
-// Norway bounding box visual
-L.rectangle([[57, 4], [71.5, 32]], {
-  color: 'rgba(0,255,136,0.25)',
-  weight: 1,
-  fill: false,
-  dashArray: '4 6',
-}).addTo(map);
 
 // ── STATE ─────────────────────────────────────────────────────────
 let markers = {};
@@ -613,8 +606,8 @@ const deg2dir  = d => {
 // ── FETCH DATA ────────────────────────────────────────────────────
 // data.json oppdateres hvert minutt av GitHub Actions
 const S3_DATA_URL   = './data.json';
-const OPENSKY_URL   = 'https://opensky-network.org/api/states/all?lamin=57&lomin=4&lamax=72&lomax=32';
-const BOUNDS = { latMin: 57, latMax: 72, lonMin: 4, lonMax: 32 };
+const OPENSKY_URL   = 'https://opensky-network.org/api/states/all?lamin=35&lomin=-25&lamax=72&lomax=45';
+const BOUNDS = { latMin: 35, latMax: 72, lonMin: -25, lonMax: 45 };
 
 function icaoToCountry(hex) {
   const n = parseInt(hex, 16);
@@ -720,7 +713,7 @@ function parseOpenSky(data) {
       heading:      s[10],
       vRate:        s[11],
       squawk:       s[14] || '—',
-      airline:      '—',
+      airline:      callsignToAirline((s[1] || '').trim()) || '—',
       aircraftType: '—',
       registration: '—',
       category:     '',
@@ -829,25 +822,7 @@ function updateMap() {
 }
 
 // ── SELECT FLIGHT ─────────────────────────────────────────────────
-function selectFlight(icao) {
-  selectedIcao = icao;
-  const f = flights.find(x => x.icao24 === icao);
-  if (!f) return;
-
-  // Re-render icons to update highlight
-  Object.values(markers).forEach((m, i) => {
-    const fl = flights[i];
-  });
-  flights.forEach(fl => {
-    if (markers[fl.icao24]) {
-      markers[fl.icao24].setIcon(makePlaneIcon(fl.heading, fl.onGround, fl.icao24 === selectedIcao, fl.category));
-    }
-  });
-
-  // Center map
-  map.panTo([f.lat, f.lon], { animate: true, duration: 0.8 });
-
-  // Detail panel
+function renderDetailPanel(f) {
   const panel = document.getElementById('plane-detail');
   panel.className = 'plane-detail';
   panel.innerHTML = `
@@ -859,11 +834,10 @@ function selectFlight(icao) {
         <div class="detail-cell-label">FLYSELSKAP</div>
         <div class="detail-cell-value">${f.airline}</div>
       </div>` : ''}
-      ${f.aircraftType !== '—' ? `
       <div class="detail-cell" style="grid-column:span 2">
         <div class="detail-cell-label">FLYTYPE</div>
-        <div class="detail-cell-value">${f.aircraftType}</div>
-      </div>` : ''}
+        <div class="detail-cell-value" id="aircraft-type-val">${f.aircraftType !== '—' ? f.aircraftType : '<span style="opacity:0.4">henter…</span>'}</div>
+      </div>
       <div class="detail-cell">
         <div class="detail-cell-label">HØYDE</div>
         <div class="detail-cell-value">${m2ft(f.altitude)} ft</div>
@@ -898,8 +872,42 @@ function selectFlight(icao) {
       </div>
     </div>
   `;
+}
 
-  // Highlight in list
+async function enrichFlight(icao) {
+  const f = flights.find(x => x.icao24 === icao);
+  if (!f || f.aircraftType !== '—') return;
+  try {
+    const res = await fetch(`https://hexdb.io/api/v1/aircraft/${icao}`, { cache: 'force-cache' });
+    if (!res.ok) return;
+    const d = await res.json();
+    const type = d.ICAOTypeCode || d.Type || null;
+    const reg  = d.Registration || null;
+    if (type) f.aircraftType = type;
+    if (reg)  f.registration = reg;
+    if (!f.airline || f.airline === '—') {
+      const owner = d.RegisteredOwners || null;
+      if (owner) f.airline = owner;
+    }
+    if (selectedIcao === icao) renderDetailPanel(f);
+  } catch {}
+}
+
+function selectFlight(icao) {
+  selectedIcao = icao;
+  const f = flights.find(x => x.icao24 === icao);
+  if (!f) return;
+
+  flights.forEach(fl => {
+    if (markers[fl.icao24]) {
+      markers[fl.icao24].setIcon(makePlaneIcon(fl.heading, fl.onGround, fl.icao24 === selectedIcao, fl.category));
+    }
+  });
+
+  map.panTo([f.lat, f.lon], { animate: true, duration: 0.8 });
+  renderDetailPanel(f);
+  enrichFlight(icao);
+
   document.querySelectorAll('.flight-item').forEach(el => {
     el.classList.toggle('active', el.dataset.icao === icao);
   });

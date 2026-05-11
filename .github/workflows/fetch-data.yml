@@ -19,7 +19,7 @@ jobs:
       - name: Fetch and upload flight data
         run: |
           DATA=$(curl -sf --max-time 12 \
-            "https://opensky-network.org/api/states/all?lamin=57&lomin=4&lamax=72&lomax=32")
+            "https://opensky-network.org/api/states/all?lamin=35&lomin=-25&lamax=72&lomax=45")
 
           COUNT=$(echo "$DATA" | python3 -c \
             "import sys,json; d=json.load(sys.stdin); print(len(d.get('states') or []))" 2>/dev/null || echo "0")
