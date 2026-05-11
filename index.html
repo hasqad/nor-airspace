@@ -740,7 +740,7 @@ function showError(msg) {
   el.style.display = 'block';
 }
 
-async function tryFetch(url, timeoutMs = 15000) {
+async function tryFetch(url, timeoutMs = 20000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -757,55 +757,32 @@ async function fetchFlights() {
   dot.className = 'status-dot loading';
   clearCountdown();
 
-  let raw = null;
-  let parser = null;
-  let lastErr = '';
+  // Kjør alle kilder parallelt — tar den raskeste som svarer
+  const sources = [
+    { url: 'https://api.airplanes.live/v2/point/64.5/15/700', parse: parseAdsbLol },
+    { url: 'https://api.adsb.lol/v2/lat/64.5/lng/15/dist/950', parse: parseAdsbLol },
+    { url: OPENSKY_URL, parse: parseOpenSky },
+    { url: OPENSKY_PROXIES[0](OPENSKY_URL), parse: parseOpenSky },
+    { url: OPENSKY_PROXIES[1](OPENSKY_URL), parse: parseOpenSky },
+  ];
 
-  // 1) Prøv ADS-B community-APIer (airplanes.live, adsb.lol)
-  for (const src of ADSB_SOURCES) {
-    if (raw) break;
-    try {
-      raw = await tryFetch(src.url);
-      parser = parseAdsbLol;
-      console.log('✅ ADS-B kilde OK:', src.url);
-    } catch (e) {
-      lastErr = e.message;
-      console.warn('⚠ Feilet:', src.url, e.message);
-    }
-  }
-
-  // 2) Fallback: OpenSky direkte
-  if (!raw) {
-    try {
-      raw = await tryFetch(OPENSKY_URL);
-      parser = parseOpenSky;
-      console.log('✅ OpenSky direkte OK');
-    } catch (e) {
-      lastErr = e.message;
-      console.warn('⚠ OpenSky direkte feilet:', e.message);
-    }
-  }
-
-  // 3) Fallback: OpenSky via proxyer
-  for (let i = 0; i < OPENSKY_PROXIES.length && !raw; i++) {
-    try {
-      raw = await tryFetch(OPENSKY_PROXIES[i](OPENSKY_URL));
-      parser = parseOpenSky;
-      console.log(`✅ OpenSky proxy ${i + 1} OK`);
-    } catch (e) {
-      lastErr = e.message;
-      console.warn(`⚠ OpenSky proxy ${i + 1} feilet:`, e.message);
-    }
-  }
-
-  if (!raw) {
+  let result = null;
+  try {
+    result = await Promise.any(
+      sources.map(async src => {
+        const data = await tryFetch(src.url);
+        console.log('✅ Svarte:', src.url);
+        return { data, parse: src.parse };
+      })
+    );
+  } catch (e) {
     dot.className = 'status-dot error';
-    showError(lastErr);
+    showError('Alle datakilder utilgjengelige — prøv igjen');
     startCountdown();
     return;
   }
 
-  flights = parser(raw);
+  flights = result.parse(result.data);
 
   if (flights.length === 0) {
     showError('Ingen fly returnert — mulig rate-limit, prøv igjen om litt');
