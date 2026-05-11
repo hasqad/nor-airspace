@@ -611,12 +611,9 @@ const deg2dir  = d => {
 };
 
 // ── FETCH DATA ────────────────────────────────────────────────────
-const LAMBDA_PROXY  = 'REPLACE_WITH_LAMBDA_URL';
+// data.json oppdateres hvert minutt av GitHub Actions
+const S3_DATA_URL   = './data.json';
 const OPENSKY_URL   = 'https://opensky-network.org/api/states/all?lamin=57&lomin=4&lamax=72&lomax=32';
-const OPENSKY_PROXIES = [
-  u => 'https://corsproxy.io/?' + encodeURIComponent(u),
-  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-];
 const BOUNDS = { latMin: 57, latMax: 72, lonMin: 4, lonMax: 32 };
 
 function icaoToCountry(hex) {
@@ -755,16 +752,10 @@ async function fetchFlights() {
 
   // Kjør alle kilder parallelt — tar den raskeste som svarer
   const sources = [
-    // Lambda-proxy (server-side fetch — mest pålitelig)
-    ...(LAMBDA_PROXY !== 'REPLACE_WITH_LAMBDA_URL'
-      ? [{ url: LAMBDA_PROXY, parse: parseAdsbLol }]
-      : []),
-    // Direkte browser-fetch (fallback)
-    { url: 'https://api.airplanes.live/v2/point/64.5/15/700', parse: parseAdsbLol },
-    { url: 'https://api.adsb.lol/v2/lat/64.5/lng/15/dist/950', parse: parseAdsbLol },
+    // S3-cachet data fra GitHub Actions (primær)
+    { url: S3_DATA_URL, parse: parseOpenSky },
+    // Direkte fallback
     { url: OPENSKY_URL, parse: parseOpenSky },
-    { url: OPENSKY_PROXIES[0](OPENSKY_URL), parse: parseOpenSky },
-    { url: OPENSKY_PROXIES[1](OPENSKY_URL), parse: parseOpenSky },
   ];
 
   let result = null;
