@@ -564,6 +564,7 @@ let countdownTimer = null;
 let countdown = 30;
 
 const REFRESH_SEC = 30;
+const routeCache = {};
 
 // ── CLOCK ─────────────────────────────────────────────────────────
 function updateClock() {
@@ -694,6 +695,8 @@ function parseAdsbLol(data) {
         aircraftType: ac.desc      || ac.t || '—',
         registration: ac.r         || '—',
         category:     ac.category  || '',
+        origin:       null,
+        destination:  null,
       };
     });
 }
@@ -717,6 +720,8 @@ function parseOpenSky(data) {
       aircraftType: '—',
       registration: '—',
       category:     '',
+      origin:       null,
+      destination:  null,
     }));
 }
 
@@ -836,7 +841,15 @@ function renderDetailPanel(f) {
       </div>` : ''}
       <div class="detail-cell" style="grid-column:span 2">
         <div class="detail-cell-label">FLYTYPE</div>
-        <div class="detail-cell-value" id="aircraft-type-val">${f.aircraftType !== '—' ? f.aircraftType : '<span style="opacity:0.4">henter…</span>'}</div>
+        <div class="detail-cell-value">${f.aircraftType !== '—' ? f.aircraftType : '<span style="opacity:0.4">henter…</span>'}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-label">FRA</div>
+        <div class="detail-cell-value">${f.origin === null ? '<span style="opacity:0.4">henter…</span>' : (f.origin === '—' ? '—' : f.origin)}</div>
+      </div>
+      <div class="detail-cell">
+        <div class="detail-cell-label">TIL</div>
+        <div class="detail-cell-value">${f.destination === null ? '<span style="opacity:0.4">henter…</span>' : (f.destination === '—' ? '—' : f.destination)}</div>
       </div>
       <div class="detail-cell">
         <div class="detail-cell-label">HØYDE</div>
@@ -874,23 +887,56 @@ function renderDetailPanel(f) {
   `;
 }
 
+async function fetchRoute(callsign) {
+  const cs = (callsign || '').replace(/\s/g, '').toUpperCase();
+  if (cs.length < 3) return null;
+  if (cs in routeCache) return routeCache[cs];
+  try {
+    const res = await fetch(`https://api.adsbdb.com/v0/callsign/${cs}`, { cache: 'force-cache' });
+    if (!res.ok) { routeCache[cs] = null; return null; }
+    const d = await res.json();
+    const fr = d?.response?.flightroute;
+    if (!fr) { routeCache[cs] = null; return null; }
+    const result = {
+      origin:      fr.origin      ? `${fr.origin.iata_code} · ${fr.origin.municipality || fr.origin.name}`      : null,
+      destination: fr.destination ? `${fr.destination.iata_code} · ${fr.destination.municipality || fr.destination.name}` : null,
+    };
+    routeCache[cs] = result;
+    return result;
+  } catch { routeCache[cs] = null; return null; }
+}
+
 async function enrichFlight(icao) {
   const f = flights.find(x => x.icao24 === icao);
-  if (!f || f.aircraftType !== '—') return;
-  try {
-    const res = await fetch(`https://hexdb.io/api/v1/aircraft/${icao}`, { cache: 'force-cache' });
-    if (!res.ok) return;
-    const d = await res.json();
-    const type = d.ICAOTypeCode || d.Type || null;
-    const reg  = d.Registration || null;
-    if (type) f.aircraftType = type;
-    if (reg)  f.registration = reg;
-    if (!f.airline || f.airline === '—') {
-      const owner = d.RegisteredOwners || null;
-      if (owner) f.airline = owner;
-    }
-    if (selectedIcao === icao) renderDetailPanel(f);
-  } catch {}
+  if (!f) return;
+  const needHex   = f.aircraftType === '—';
+  const needRoute = f.origin === null;
+  if (!needHex && !needRoute) return;
+
+  const [hexRes, routeRes] = await Promise.allSettled([
+    needHex   ? fetch(`https://hexdb.io/api/v1/aircraft/${icao}`, { cache: 'force-cache' }).then(r => r.ok ? r.json() : null).catch(() => null) : Promise.resolve(null),
+    needRoute ? fetchRoute(f.callsign) : Promise.resolve(null),
+  ]);
+
+  const hex   = hexRes.value;
+  const route = routeRes.value;
+
+  if (hex) {
+    if (hex.ICAOTypeCode || hex.Type) f.aircraftType = hex.ICAOTypeCode || hex.Type;
+    if (hex.Registration)             f.registration = hex.Registration;
+    if (f.airline === '—' && hex.RegisteredOwners) f.airline = hex.RegisteredOwners;
+  } else if (needHex) {
+    f.aircraftType = '—';
+  }
+
+  if (route) {
+    f.origin      = route.origin      || '—';
+    f.destination = route.destination || '—';
+  } else if (needRoute) {
+    f.origin = f.destination = '—';
+  }
+
+  if (selectedIcao === icao) renderDetailPanel(f);
 }
 
 function selectFlight(icao) {
